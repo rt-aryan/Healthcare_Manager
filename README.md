@@ -1,38 +1,40 @@
 # Healthcare Appointment & Follow-up Manager
 
-A full-stack clinic platform with separate **Patient**, **Doctor**, and **Admin**
-portals. Patients book appointments and submit symptoms in advance; an LLM
-generates a pre-visit summary (urgency + chief complaint + suggested
-questions) for the doctor; after the visit the doctor's clinical notes are
-turned into a patient-friendly summary + medication schedule by the LLM; both
-sides get email notifications and Google Calendar events for every booking,
-reschedule, and cancellation.
+A full-stack clinic appointment platform with separate **Patient**, **Doctor**,
+and **Admin** portals. Patients book appointments and submit symptoms in
+advance; an AI model generates a pre-visit summary (urgency level, chief
+complaint, and suggested questions) for the doctor; after the visit, the
+doctor's clinical notes are converted into a patient-friendly summary and
+medication schedule. Both parties receive email notifications and Google
+Calendar events for every booking, reschedule, and cancellation.
 
-- **Backend**: Node.js, Express, Prisma ORM, SQLite (swappable to Postgres)
+## Technology Stack
+
+- **Backend**: Node.js, Express, Prisma ORM, SQLite (configurable for PostgreSQL)
 - **Frontend**: React (Vite), React Router, Axios
-- **LLM**: Anthropic Claude API
-- **Email**: Nodemailer (SMTP — works with Mailgun, SendGrid SMTP relay, Gmail, etc.)
+- **AI Integration**: Anthropic Claude API
+- **Email**: Nodemailer (SMTP-compatible — Mailgun, SendGrid, Gmail, etc.)
 - **Calendar**: Google Calendar API via OAuth 2.0
-- **Background jobs**: node-cron (notification retry queue, medication reminders)
+- **Background Processing**: node-cron (notification retry queue, medication reminders)
 
-See [`docs/system-design.md`](docs/system-design.md) for the design write-up
-covering double-booking prevention, leave-conflict handling, the slot hold
-mechanism, and notification failure handling.
+Refer to [`docs/system-design.md`](docs/system-design.md) for the system
+design write-up covering double-booking prevention, leave-conflict handling,
+the slot hold mechanism, and notification reliability.
 
 ---
 
-## 1. Project structure
+## 1. Project Structure
 
 ```
 healthcare-appointment-manager/
 ├── backend/
 │   ├── prisma/
-│   │   ├── schema.prisma      # full DB schema (see section 5)
-│   │   └── seed.js            # creates demo admin/doctor/patient accounts
+│   │   ├── schema.prisma      # database schema (see section 5)
+│   │   └── seed.js            # demo admin/doctor/patient accounts
 │   ├── src/
 │   │   ├── routes/            # auth, admin, patient, doctor, calendar
-│   │   ├── services/          # booking, llm, email, calendar
-│   │   ├── jobs/               # notification retry + medication reminder cron jobs
+│   │   ├── services/          # booking, LLM, email, calendar
+│   │   ├── jobs/               # notification retry + medication reminder jobs
 │   │   ├── middleware/         # auth, error handling
 │   │   └── server.js
 │   ├── .env.example
@@ -55,16 +57,16 @@ healthcare-appointment-manager/
 ## 2. Prerequisites
 
 - Node.js 18+ and npm
-- (Optional, for production) a Postgres database
+- PostgreSQL database (recommended for production; SQLite is used by default for local development)
 - An Anthropic API key — https://console.anthropic.com/
-- SMTP credentials for email (Mailgun, SendGrid, or a Gmail app password)
+- SMTP credentials for email delivery (Mailgun, SendGrid, or equivalent)
 - A Google Cloud project with the Calendar API enabled (see section 6)
 
 ---
 
-## 3. Local setup — step by step
+## 3. Setup Instructions
 
-### 3.1 Clone / unzip and install dependencies
+### 3.1 Install Dependencies
 
 ```bash
 cd healthcare-appointment-manager
@@ -76,40 +78,40 @@ cd ../frontend
 npm install
 ```
 
-### 3.2 Configure environment variables
+### 3.2 Configure Environment Variables
 
-**Backend** — copy the example and fill in real values:
+**Backend**
 
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-Open `backend/.env` and set:
+Set the following values in `backend/.env`:
 
 | Variable | Description |
 |---|---|
 | `PORT` | API port (default `4000`) |
-| `FRONTEND_URL` | Your frontend origin, e.g. `http://localhost:5173` (used for CORS and OAuth redirect) |
-| `DATABASE_URL` | `file:./dev.db` for local SQLite, or a Postgres connection string for production |
-| `JWT_SECRET` | Any long random string |
-| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+| `FRONTEND_URL` | Frontend origin, e.g. `http://localhost:5173` (used for CORS and OAuth redirect) |
+| `DATABASE_URL` | `file:./dev.db` for local SQLite, or a PostgreSQL connection string for production |
+| `JWT_SECRET` | A long, random secret string |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
 | `ANTHROPIC_MODEL` | e.g. `claude-sonnet-4-5` |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | Your email provider's SMTP credentials |
-| `EMAIL_FROM` | The "from" address shown to recipients |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | From Google Cloud Console (section 6) |
-| `SLOT_HOLD_MINUTES` | How long a slot stays reserved while a patient fills the symptom form (default `5`) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | Email provider SMTP credentials |
+| `EMAIL_FROM` | Sender address shown to recipients |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Cloud OAuth credentials (section 6) |
+| `SLOT_HOLD_MINUTES` | Duration a slot remains reserved while a patient completes the symptom form (default `5`) |
 
-**Frontend** — copy the example:
+**Frontend**
 
 ```bash
 cd ../frontend
 cp .env.example .env
 ```
 
-Set `VITE_API_URL` to your backend's `/api` URL, e.g. `http://localhost:4000/api`.
+Set `VITE_API_URL` to the backend API URL, e.g. `http://localhost:4000/api`.
 
-### 3.3 Set up the database
+### 3.3 Initialize the Database
 
 ```bash
 cd ../backend
@@ -117,19 +119,18 @@ npx prisma generate
 npx prisma migrate dev --name init
 ```
 
-This creates `backend/prisma/dev.db` (SQLite) and applies the schema.
+This applies the schema and creates the local database. To use PostgreSQL,
+update the `provider` in `schema.prisma` to `"postgresql"` and set
+`DATABASE_URL` to the PostgreSQL connection string before running the
+commands above.
 
-> If you switch `provider` in `schema.prisma` to `"postgresql"`, set
-> `DATABASE_URL` to your Postgres connection string first, then run the same
-> two commands.
-
-### 3.4 Seed demo accounts (optional but recommended)
+### 3.4 Seed Demo Accounts
 
 ```bash
 npm run seed
 ```
 
-This creates:
+This creates the following accounts:
 
 | Role | Email | Password |
 |---|---|---|
@@ -137,90 +138,86 @@ This creates:
 | Doctor | `dr.smith@clinic.com` | `Password123!` |
 | Patient | `patient@example.com` | `Password123!` |
 
-### 3.5 Run the app
-
-In one terminal:
+### 3.5 Run the Application
 
 ```bash
+# Terminal 1
 cd backend
 npm run dev
-```
 
-In another terminal:
-
-```bash
+# Terminal 2
 cd frontend
 npm run dev
 ```
 
-Visit `http://localhost:5173`, log in with one of the seeded accounts (or
-register a new patient), and explore.
+Open `http://localhost:5173` and log in with one of the accounts above, or
+register a new patient account.
 
 ---
 
-## 4. API documentation
+## 4. API Documentation
 
-Base URL: `http://localhost:4000/api`. All protected routes require
-`Authorization: Bearer <token>` (returned from login/register).
+Base URL: `http://localhost:4000/api`. All protected routes require the
+header `Authorization: Bearer <token>`, returned from login/registration.
 
-### Auth
+### Authentication
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/register` | none | Register (defaults to PATIENT role) |
-| POST | `/auth/login` | none | Log in, returns `{ token, user }` |
+| POST | `/auth/register` | none | Register a new account (defaults to PATIENT role) |
+| POST | `/auth/login` | none | Authenticate and receive `{ token, user }` |
 
 ### Admin (role: ADMIN)
 | Method | Path | Description |
 |---|---|---|
-| POST | `/admin/doctors` | Create a doctor account + profile + working hours |
+| POST | `/admin/doctors` | Create a doctor account, profile, and working hours |
 | GET | `/admin/doctors` | List all doctors |
-| PATCH | `/admin/doctors/:doctorId` | Update specialisation/slot duration/bio |
+| PATCH | `/admin/doctors/:doctorId` | Update specialisation, slot duration, or bio |
 | PUT | `/admin/doctors/:doctorId/working-hours` | Replace weekly working hours |
-| POST | `/admin/doctors/:doctorId/leave` | Mark a date as leave; auto-cancels conflicting bookings and notifies affected patients |
-| GET | `/admin/appointments` | List all appointments (any status) |
+| POST | `/admin/doctors/:doctorId/leave` | Mark a date as leave; cancels conflicting bookings and notifies affected patients |
+| GET | `/admin/appointments` | List all appointments |
 
 ### Patient (role: PATIENT)
 | Method | Path | Description |
 |---|---|---|
-| GET | `/doctors/search?specialisation=` | Public: search doctors (no auth) |
-| GET | `/patients/doctors/:doctorId/slots?date=YYYY-MM-DD` | Available slots for a date |
-| POST | `/patients/appointments/hold` | Step 1: hold a slot `{ doctorId, slotStart, slotEnd }` |
-| POST | `/patients/appointments/:id/confirm` | Step 2: submit symptoms, confirm booking, triggers LLM + emails + calendar |
-| GET | `/patients/me/appointments` | My appointments (booked/completed/cancelled) |
+| GET | `/doctors/search?specialisation=` | Search doctors by specialisation (public) |
+| GET | `/patients/doctors/:doctorId/slots?date=YYYY-MM-DD` | Retrieve available slots for a date |
+| POST | `/patients/appointments/hold` | Reserve a slot: `{ doctorId, slotStart, slotEnd }` |
+| POST | `/patients/appointments/:id/confirm` | Submit symptoms and confirm the booking |
+| GET | `/patients/me/appointments` | List the authenticated patient's appointments |
 | POST | `/patients/appointments/:id/cancel` | Cancel a booked appointment |
 
 ### Doctor (role: DOCTOR)
 | Method | Path | Description |
 |---|---|---|
-| GET | `/doctors/me/appointments` | My upcoming/completed appointments with pre-visit AI summaries |
-| POST | `/doctors/appointments/:id/visit-notes` | Submit clinical notes + prescriptions; triggers LLM patient summary + medication reminders |
+| GET | `/doctors/me/appointments` | List the doctor's appointments with pre-visit AI summaries |
+| POST | `/doctors/appointments/:id/visit-notes` | Submit clinical notes and prescriptions; generates the patient-facing summary and schedules medication reminders |
 
 ### Google Calendar (any authenticated user)
 | Method | Path | Description |
 |---|---|---|
-| GET | `/calendar/oauth/start` | Returns the Google consent URL to redirect the user to |
-| GET | `/calendar/oauth/callback` | OAuth redirect target; stores tokens, redirects to frontend |
+| GET | `/calendar/oauth/start` | Returns the Google OAuth consent URL |
+| GET | `/calendar/oauth/callback` | OAuth redirect endpoint; stores tokens and redirects to the frontend |
 
 ---
 
-## 5. Database schema (summary)
+## 5. Database Schema
 
 Full definition: `backend/prisma/schema.prisma`.
 
-- **User** — email/password/role (`PATIENT`/`DOCTOR`/`ADMIN`), 1:1 with `PatientProfile` or `DoctorProfile`, 1:1 with `GoogleToken`
-- **DoctorProfile** — specialisation, slot duration, has many `WorkingHour` and `LeaveDay`
+- **User** — email, password hash, role (`PATIENT` / `DOCTOR` / `ADMIN`); related 1:1 to `PatientProfile` or `DoctorProfile`, and 1:1 to `GoogleToken`
+- **DoctorProfile** — specialisation, slot duration; related to `WorkingHour` and `LeaveDay`
 - **WorkingHour** — recurring weekly availability (`dayOfWeek`, `startTime`, `endTime`)
-- **LeaveDay** — a specific date a doctor is unavailable (unique per doctor+date)
-- **Appointment** — the booking itself; `status` is `HELD → BOOKED → COMPLETED/CANCELLED/NO_SHOW`; **unique on `(doctorId, slotStart)`** — this is what makes double-booking structurally impossible, not just checked in code
-- **SymptomForm** — 1:1 with an appointment; raw symptoms + LLM urgency/chief complaint/suggested questions + LLM status/error for graceful failure handling
-- **VisitNote** — 1:1 with an appointment; clinical notes + LLM patient-friendly summary/follow-up steps
-- **Prescription** — medication, dosage, frequency, duration; has many `MedicationReminder`
+- **LeaveDay** — a specific date on which a doctor is unavailable (unique per doctor and date)
+- **Appointment** — the core booking record; `status` transitions through `HELD → BOOKED → COMPLETED / CANCELLED / NO_SHOW`; enforces a unique constraint on `(doctorId, slotStart)` to guarantee slot integrity at the database level
+- **SymptomForm** — related 1:1 to an appointment; stores raw symptoms and the AI-generated urgency, chief complaint, and suggested questions
+- **VisitNote** — related 1:1 to an appointment; stores clinical notes and the AI-generated patient summary and follow-up steps
+- **Prescription** — medication, dosage, frequency, and duration; related to `MedicationReminder`
 - **MedicationReminder** — individual scheduled reminder times derived from prescription frequency
-- **Notification** — the email **outbox**: every email (confirmation, reminder, cancellation, leave conflict, medication reminder) is written here first with `status = PENDING`, then delivered and retried by the background job
+- **Notification** — outbound email queue; every notification (booking confirmation, reminder, cancellation, leave conflict, medication reminder) is recorded here with delivery status and retried by the background job on failure
 
 ---
 
-## 6. LLM prompts used
+## 6. AI (LLM) Integration
 
 **Pre-visit summary** (`src/services/llm.service.js` → `generatePreVisitSummary`):
 ```
@@ -239,132 +236,64 @@ Return ONLY valid JSON (no markdown, no prose) in this exact shape:
 Clinical notes: <notes>
 ```
 
-Both calls have a 20s timeout, up to 2 retries with backoff, and strict JSON
-parsing. On any failure the route persists a fallback record instead of
-breaking the request — see `docs/system-design.md` section 6.
+Both calls apply a request timeout, automatic retries with backoff, and
+strict response validation. On failure, the system persists a fallback
+record so the booking and visit workflows always complete successfully. See
+`docs/system-design.md`, section 6, for details.
 
 ---
 
-## 7. Google Calendar setup (OAuth 2.0)
+## 7. Google Calendar Setup (OAuth 2.0)
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create (or select) a project.
+1. Open the [Google Cloud Console](https://console.cloud.google.com/) and create or select a project.
 2. Enable the **Google Calendar API**: APIs & Services → Library → search "Google Calendar API" → Enable.
 3. Configure the OAuth consent screen (APIs & Services → OAuth consent screen):
-   - User type: External (or Internal if using Google Workspace)
-   - Add your app name, support email
+   - User type: External (or Internal for Google Workspace)
+   - Provide the application name and support email
    - Add scope: `https://www.googleapis.com/auth/calendar.events`
-   - Add test users (your own Google account) while the app is in "Testing" mode
+   - Add authorized test users while the application is in Testing mode
 4. Create OAuth credentials: APIs & Services → Credentials → Create Credentials → OAuth client ID
    - Application type: **Web application**
-   - Authorized redirect URI: `http://localhost:4000/api/calendar/oauth/callback` (must exactly match `GOOGLE_REDIRECT_URI` in `.env`; update this to your deployed backend URL in production)
+   - Authorized redirect URI: matches `GOOGLE_REDIRECT_URI` in `.env`, e.g. `http://localhost:4000/api/calendar/oauth/callback` (update to the production backend URL when deployed)
 5. Copy the generated **Client ID** and **Client Secret** into `backend/.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-6. In the app, a logged-in patient or doctor clicks **"Connect Google Calendar"** (shown on their portal), which calls `GET /api/calendar/oauth/start`, redirects to Google's consent screen, and on approval Google redirects back to `/api/calendar/oauth/callback`, which stores the access/refresh tokens against that user. From then on, every booking/cancellation for that user automatically creates/deletes a calendar event. If a user hasn't connected calendar, booking still works normally — calendar sync is best-effort and never blocks the flow.
+6. From their respective portal, a patient or doctor selects **Connect Google Calendar**, which initiates the OAuth flow via `GET /api/calendar/oauth/start`. On approval, Google redirects to `/api/calendar/oauth/callback`, which stores the access and refresh tokens for that user. Subsequent bookings and cancellations automatically create, update, or remove the corresponding calendar event. Calendar synchronization is independent of the booking flow and does not affect appointment scheduling if not connected.
 
 ---
 
-## 8. Email provider setup
+## 8. Email Provider Setup
 
-Any SMTP-compatible provider works. Two common options:
+Any SMTP-compatible provider is supported.
 
-**Mailgun**: create an account, verify a sending domain (or use the sandbox
-domain for testing), then use the SMTP credentials shown in Mailgun's
-dashboard for `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS`.
+**Mailgun**: create an account, verify a sending domain, and use the SMTP
+credentials from the Mailgun dashboard for `SMTP_HOST`, `SMTP_USER`, and
+`SMTP_PASS`.
 
-**Gmail (for quick local testing only)**: enable 2FA on the Gmail account,
-generate an **App Password**, and use `smtp.gmail.com`, port `587`, your
-Gmail address as `SMTP_USER`, and the app password as `SMTP_PASS`.
+**Gmail**: enable two-factor authentication on the account, generate an App
+Password, and use `smtp.gmail.com`, port `587`, the Gmail address as
+`SMTP_USER`, and the App Password as `SMTP_PASS`.
 
 ---
 
-## 9. Deployment (free-tier friendly)
+## 9. Deployment
 
-**Backend (Render, Railway, or Fly.io):**
-1. Push this repo to GitHub (see section 10 below).
-2. Create a new Web Service, point it at the `backend/` directory (set the root directory to `backend` if the platform asks).
-3. Build command: `npm install && npx prisma generate && npx prisma migrate deploy`
-4. Start command: `npm start`
-5. Add all the environment variables from `backend/.env.example` in the platform's dashboard (use a managed Postgres add-on for `DATABASE_URL` in production instead of SQLite, since most of these platforms have an ephemeral filesystem).
-6. Update `GOOGLE_REDIRECT_URI` to `https://<your-backend-domain>/api/calendar/oauth/callback` and add that same URL to the Google Cloud OAuth credentials.
+**Backend (Render, Railway, or similar):**
+1. Deploy the `backend/` directory as the service root.
+2. Build command: `npm install && npx prisma generate && npx prisma migrate deploy`
+3. Start command: `npm start`
+4. Configure all environment variables listed in `backend/.env.example`. Use a managed PostgreSQL instance for `DATABASE_URL` in production.
+5. Set `GOOGLE_REDIRECT_URI` to the deployed backend's callback URL and register the same URL in the Google Cloud OAuth credentials.
 
-**Frontend (Vercel or Netlify):**
-1. Point the platform at the `frontend/` directory.
+**Frontend (Vercel, Netlify, or similar):**
+1. Deploy the `frontend/` directory as the project root.
 2. Build command: `npm run build`. Output directory: `dist`.
-3. Set `VITE_API_URL` to `https://<your-backend-domain>/api`.
-4. Update `FRONTEND_URL` in the backend's env vars to your deployed frontend URL (for CORS and the post-OAuth redirect).
+3. Set `VITE_API_URL` to the deployed backend's API URL.
+4. Update `FRONTEND_URL` in the backend environment configuration to the deployed frontend URL.
 
 ---
 
-## 10. Git setup and pushing to GitHub — every step
+## 10. Security Notes
 
-If this project isn't already a git repo (a fresh `.git` was initialized when
-this was built), here's the full sequence from zero:
-
-```bash
-# 1. Go into the project folder
-cd healthcare-appointment-manager
-
-# 2. Initialize git (skip if already a repo — check with `git status`)
-git init
-
-# 3. Stage all files
-git add .
-
-# 4. Make the first commit
-git commit -m "Initial commit: Healthcare Appointment & Follow-up Manager"
-
-# 5. Rename the default branch to main (optional but common convention)
-git branch -M main
-
-# 6. Create a new EMPTY repository on GitHub (do this in the browser):
-#    - Go to https://github.com/new
-#    - Choose a repository name, e.g. "healthcare-appointment-manager"
-#    - Do NOT initialize it with a README, .gitignore, or license
-#      (this repo already has all three / their equivalents)
-#    - Click "Create repository"
-
-# 7. Link your local repo to the GitHub repo you just created
-#    Replace YOUR_USERNAME and YOUR_REPO with your actual GitHub username/repo name
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
-
-# 8. Push your code
-git push -u origin main
-```
-
-If GitHub asks for authentication:
-- **HTTPS + Personal Access Token (recommended)**: when prompted for a
-  password, paste a token generated at
-  `https://github.com/settings/tokens` (classic token with `repo` scope, or a
-  fine-grained token scoped to the new repo) — GitHub no longer accepts your
-  account password directly.
-- **SSH (alternative)**: generate a key with `ssh-keygen -t ed25519 -C "you@example.com"`,
-  add the public key at `https://github.com/settings/keys`, then use
-  `git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO.git` instead
-  of the HTTPS URL in step 7.
-
-### Making further changes later
-
-```bash
-git add .
-git commit -m "Describe what changed"
-git push
-```
-
-### Important: never commit real secrets
-
-`backend/.env` and `frontend/.env` are excluded via `.gitignore` — only the
-`.env.example` files (with placeholder values) are committed. Double-check
-`git status` before your first push to confirm no real `.env` file, `dev.db`,
-or API key is staged.
-
----
-
-## 11. Known limitations / next steps
-
-- SQLite is used by default for zero-config local setup; switch to Postgres
-  (`schema.prisma` provider + `DATABASE_URL`) before any real production use,
-  since SQLite doesn't handle concurrent writes at scale and most free
-  hosting platforms wipe local files on redeploy.
-- There is no automated test suite included; given the scope, prioritize
-  adding integration tests around the hold/confirm booking race condition and
-  the leave-conflict cancellation path first.
-- Rate limiting and request throttling are not implemented on the API.
+- `backend/.env` and `frontend/.env` are excluded from version control via `.gitignore`; only `.env.example` files with placeholder values are tracked.
+- Passwords are hashed with bcrypt before storage.
+- All role-restricted API routes are protected by JWT-based authentication and role authorization middleware.
+- Google Calendar tokens are stored per-user and refreshed automatically by the OAuth client.
